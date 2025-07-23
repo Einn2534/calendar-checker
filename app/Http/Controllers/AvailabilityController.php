@@ -10,6 +10,7 @@ class AvailabilityController extends Controller
 {
     public function index(Request $request, GoogleCalendarService $gcal)
     {
+        try {
         // 例：今週の月曜 9:00 ～ 金曜 18:00 を検索期間に
         $from = Carbon::now()->startOfWeek()->addHours(9);
         $to   = Carbon::now()->endOfWeek()->setHour(18);
@@ -57,5 +58,8 @@ class AvailabilityController extends Controller
         }
 
         return view('availability.index', compact('availabilities'));
+        } catch (\Throwable $e) {
+            return view('availability.error', ['message' => $e->getMessage()]);
+        }
     }
 }

@@ -15,7 +15,11 @@ class GoogleCalendarService
     public function __construct()
     {
         $this->client = new Google_Client();
-        $this->client->setAuthConfig(config('google.client_credentials'));
+        $credPath = config('google.client_credentials');
+        if (!is_string($credPath) || !file_exists($credPath)) {
+            throw new \RuntimeException('Google credential file not found.');
+        }
+        $this->client->setAuthConfig($credPath);
         $this->client->setRedirectUri(config('google.redirect_uri'));
         $this->client->addScope(Google_Service_Calendar::CALENDAR_READONLY);
         $this->client->setAccessType('offline');
