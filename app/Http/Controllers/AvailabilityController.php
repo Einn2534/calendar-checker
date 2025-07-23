@@ -16,9 +16,12 @@ class AvailabilityController extends Controller
 
         // 取得したいカレンダーIDを列挙（env や DB から動的に）
         $calendarIds = [
-            'primary',
-            'team1@example.com',
-            'team2@example.com',
+            'c_b31c94dc62779426bd55fdf4977b90cc0ef16a5b20ba155020827586bc17f1f0@group.calendar.google.com',
+            'c_d636f481e9e8c0673d8e9afa328a8d06e4cd60f7438df702c79cf197d85fd907@group.calendar.google.com',
+            'c_80af6e1d5b321848980325495f5d69599b2d26b044a3e7f8ec2f72b726d901f4@group.calendar.google.com',
+            'c_8ac9fbda61cc548ae6e004c3d7337eab2528c95736ff885896114c8236d0222f@group.calendar.google.com',
+            'c_classroom23e999f9@group.calendar.google.com',
+            'c_8ac9fbda61cc548ae6e004c3d7337eab2528c95736ff885896114c8236d0222f@group.calendar.google.com',
             // ...
         ];
 
