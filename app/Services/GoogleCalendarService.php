@@ -56,6 +56,12 @@ class GoogleCalendarService
             session(['google_access_token' => $this->client->getAccessToken()]);
         }
     }
+    public function getCalendar(string $calendarId)
+    {
+        $this->ensureAccessToken();
+        return $this->service->calendars->get($calendarId);
+    }
+
 
     /**
      * 複数カレンダーから指定期間のイベントを取得
@@ -70,18 +76,36 @@ class GoogleCalendarService
         $allEvents = [];
 
         foreach ($calendarIds as $calId) {
+            try {
+                $calendar = $this->service->calendars->get($calId);
+                $calendarName = $calendar->getSummary(); // 正常取得
+            } catch (\Google\Service\Exception $e) {
+                $calendarName = "[取得失敗: {$calId}]"; // ← 見える形で表示
+                \Log::error("カレンダー名取得失敗: {$calId} - " . $e->getMessage());
+            }
+
             $optParams = [
                 'timeMin'      => $from->toRfc3339String(),
                 'timeMax'      => $to->toRfc3339String(),
                 'singleEvents' => true,
                 'orderBy'      => 'startTime',
             ];
-            $events = $this->service
-                ->events
-                ->listEvents($calId, $optParams)
-                ->getItems();
 
-            $allEvents = array_merge($allEvents, $events);
+            try {
+                $events = $this->service
+                    ->events
+                    ->listEvents($calId, $optParams)
+                    ->getItems();
+
+                foreach ($events as $event) {
+                    $allEvents[] = [
+                        'event' => $event,
+                        'calendarName' => $calendarName,
+                    ];
+                }
+            } catch (\Google\Service\Exception $e) {
+                \Log::error("イベント取得失敗: {$calId} - " . $e->getMessage());
+            }
         }
 
         return $allEvents;
