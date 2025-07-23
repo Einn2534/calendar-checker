@@ -6,6 +6,16 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
+## Setup
+
+After cloning the repository, install PHP dependencies and generate an application key:
+
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+```
+
 
 ## About Laravel
 
@@ -27,11 +37,8 @@ Laravel is accessible, powerful, and provides tools required for large, robust a
 2. Set `GOOGLE_CLIENT_CREDENTIALS` in `.env` to the absolute path of the JSON file.
 3. Set `GOOGLE_REDIRECT_URI` to your OAuth callback URL (e.g. `http://localhost/oauth2callback`).
 
-<<<<<<< HEAD
 
 
-=======
->>>>>>> origin/7p3cwf-codex/fix-missing-client_secret.json-file
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
