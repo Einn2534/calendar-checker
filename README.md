@@ -21,6 +21,12 @@ Laravel is a web application framework with expressive, elegant syntax. We belie
 
 Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
+## Google Calendar Setup
+
+1. Create a `storage/credentials` directory and place your `client_secret.json` downloaded from Google Cloud in it.
+2. Set `GOOGLE_CLIENT_CREDENTIALS` in `.env` to the absolute path of the JSON file.
+3. Set `GOOGLE_REDIRECT_URI` to your OAuth callback URL (e.g. `http://localhost/oauth2callback`).
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
