@@ -17,12 +17,11 @@ class AvailabilityController extends Controller
         }
 
         try {
-            // 水曜10:00 〜 金曜20:30 を検索範囲に
+            // 水曜10:00 〜 一か月後20:30 を検索範囲に
             $from = Carbon::now()->startOfWeek()->addDays(2)->setTime(10, 0);
-            $to   = Carbon::now()->endOfWeek()->setTime(20, 30);
-
-
+            $to = $from->copy()->addMonth()->setTime(20, 30);
             $period = CarbonPeriod::create($from, '30 minutes', $to);
+
 
             $calendarIds = [
                 'c_b31c94dc62779426bd55fdf4977b90cc0ef16a5b20ba155020827586bc17f1f0@group.calendar.google.com',
@@ -52,18 +51,33 @@ class AvailabilityController extends Controller
                 // イベント取得
                 $calendarEvents = $gcal->fetchEvents([$calId], $from, $to);
 
+                // 「どれだけ件数があっても 2 件として扱う」ロジック
+                $specialCalendarId = 'c_62fdd6187530c4c29548c8a4e7ebf51cff6306f65b92da7da403a2009635e068@group.calendar.google.com';
+                if ($calId === $specialCalendarId) {
+                    // 自身を連結 → 件数が1なら2件に、2件以上なら2件に、0件なら0件のまま
+                    $calendarEvents = array_slice(
+                        array_merge($calendarEvents, $calendarEvents),
+                        0,
+                        2
+                    );
+                }
+
                 foreach ($calendarEvents as $item) {
-                    $ev = $item['event'];
+                    $ev    = $item['event'];
                     $start = new Carbon($ev->getStart()->getDateTime() ?? $ev->getStart()->getDate());
-                    $end   = new Carbon($ev->getEnd()->getDateTime() ?? $ev->getEnd()->getDate());
+                    $end   = new Carbon($ev->getEnd()->getDateTime()   ?? $ev->getEnd()->getDate());
 
                     if (in_array($start->dayOfWeekIso, [1, 2])) continue;
 
+                    // 1イベントが+1/-1 なので、同じものが2件あれば+2/-2 に
                     $points[] = ['time' => $start, 'delta' => +1];
                     $points[] = ['time' => $end,   'delta' => -1];
                 }
             }
 
+            if (empty($points)) {
+                $availabilities[] = ['start' => $from->copy(), 'end' => $to->copy()];
+            }
 
             usort($points, fn($a, $b) => $a['time']->lt($b['time']) ? -1 : 1);
 
@@ -139,6 +153,7 @@ class AvailabilityController extends Controller
                     $merged[] = $slot;
                 }
             }
+
             $availabilities = $merged;
 
             $calendarNames = array_unique($calendarNames);
