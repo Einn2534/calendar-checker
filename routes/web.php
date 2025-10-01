@@ -28,7 +28,7 @@ Route::get('/auth/google/callback', function (\Illuminate\Http\Request $request,
     }
 })->name('google.callback');
 // 空き時間表示
-Route::get('/availability', [AvailabilityController::class, 'index']);
+Route::get('/availability', [AvailabilityController::class, 'index'])->name('availability.index');
 
 Route::get('/', function () {
     return view('welcome');

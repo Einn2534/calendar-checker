@@ -34,6 +34,12 @@ class AvailabilityController extends Controller
                 'c_62fdd6187530c4c29548c8a4e7ebf51cff6306f65b92da7da403a2009635e068@group.calendar.google.com',
             ];
 
+            $allowedConcurrentCaps = [5, 3, 1];
+            $maxConcurrent = (int) $request->input('max_concurrent', 5);
+            if (!in_array($maxConcurrent, $allowedConcurrentCaps, true)) {
+                $maxConcurrent = $allowedConcurrentCaps[0];
+            }
+
             $events = $gcal->fetchEvents($calendarIds, $from, $to);
 
             $calendarNames = [];
@@ -85,7 +91,7 @@ class AvailabilityController extends Controller
 
                 foreach ($points as $pt) {
                     $now = $pt['time'];
-                    if ($count < 4 && $now->gt($windowStart)) {
+                    if ($count < $maxConcurrent && $now->gt($windowStart)) {
                         $availabilities[] = [
                             'start' => $windowStart->copy(),
                             'end'   => $now->copy(),
@@ -96,7 +102,7 @@ class AvailabilityController extends Controller
                     $windowStart = $now;
                 }
 
-                if ($count < 4 && $windowStart->lt($to)) {
+                if ($count < $maxConcurrent && $windowStart->lt($to)) {
                     $availabilities[] = [
                         'start' => $windowStart->copy(),
                         'end'   => $to->copy(),
@@ -171,7 +177,12 @@ class AvailabilityController extends Controller
 
             $calendarNames = array_unique($calendarNames);
 
-            return view('availability.index', compact('availabilities', 'calendarNames'));
+            return view('availability.index', [
+                'availabilities' => $availabilities,
+                'calendarNames' => $calendarNames,
+                'maxConcurrent' => $maxConcurrent,
+                'allowedConcurrentCaps' => $allowedConcurrentCaps,
+            ]);
         } catch (\Throwable $e) {
             return view('availability.error', ['message' => $e->getMessage()]);
         }
