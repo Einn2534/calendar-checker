@@ -76,26 +76,26 @@ class AvailabilityController extends Controller
             }
 
             if (empty($points)) {
-                $availabilities[] = ['start' => $from->copy(), 'end' => $to->copy()];
-            }
+                $availabilities = $this->buildFullAvailability($from, $to);
+            } else {
+                usort($points, fn($a, $b) => $a['time']->lt($b['time']) ? -1 : 1);
 
-            usort($points, fn($a, $b) => $a['time']->lt($b['time']) ? -1 : 1);
+                $count = 0;
+                $availabilities = [];
+                $windowStart = $from;
 
-            $count = 0;
-            $availabilities = [];
-            $windowStart = $from;
-
-            foreach ($points as $pt) {
-                $now = $pt['time'];
-                if ($count < 4 && $now->gt($windowStart)) {
-                    $availabilities[] = ['start' => $windowStart->copy(), 'end' => $now->copy()];
+                foreach ($points as $pt) {
+                    $now = $pt['time'];
+                    if ($count < 4 && $now->gt($windowStart)) {
+                        $availabilities[] = ['start' => $windowStart->copy(), 'end' => $now->copy()];
+                    }
+                    $count += $pt['delta'];
+                    $windowStart = $now;
                 }
-                $count += $pt['delta'];
-                $windowStart = $now;
-            }
 
-            if ($count < 4 && $windowStart->lt($to)) {
-                $availabilities[] = ['start' => $windowStart, 'end' => $to];
+                if ($count < 4 && $windowStart->lt($to)) {
+                    $availabilities[] = ['start' => $windowStart, 'end' => $to];
+                }
             }
             $availabilities = array_filter($availabilities, function ($slot) {
                 $start = $slot['start'];
@@ -162,5 +162,62 @@ class AvailabilityController extends Controller
         } catch (\Throwable $e) {
             return view('availability.error', ['message' => $e->getMessage()]);
         }
+    }
+
+    private function buildFullAvailability(Carbon $from, Carbon $to): array
+    {
+        $availabilities = [];
+        $currentDay = $from->copy()->startOfDay();
+
+        while ($currentDay->lte($to)) {
+            $dayOfWeek = $currentDay->dayOfWeekIso;
+
+            if (in_array($dayOfWeek, [1, 2])) {
+                $currentDay->addDay();
+                continue;
+            }
+
+            if (in_array($dayOfWeek, [6, 7])) {
+                $dayStart = $currentDay->copy()->setTime(10, 0);
+                $dayEnd = $currentDay->copy()->setTime(18, 30);
+            } else {
+                $dayStart = $currentDay->copy()->setTime(10, 0);
+                $dayEnd = $currentDay->copy()->setTime(20, 30);
+            }
+
+            $rangeStart = $dayStart;
+            $rangeEnd = $dayEnd;
+
+            if ($from->isSameDay($currentDay) && $from->gt($rangeStart)) {
+                $rangeStart = $from->copy();
+            }
+
+            if ($to->isSameDay($currentDay) && $to->lt($rangeEnd)) {
+                $rangeEnd = $to->copy();
+            }
+
+            if ($rangeStart->lt($rangeEnd)) {
+                $excludeStart = $currentDay->copy()->setTime(12, 0);
+                $excludeEnd = $currentDay->copy()->setTime(14, 0);
+
+                if ($rangeStart->lt($excludeStart)) {
+                    $morningEnd = $rangeEnd->lt($excludeStart) ? $rangeEnd->copy() : $excludeStart;
+                    if ($rangeStart->lt($morningEnd)) {
+                        $availabilities[] = ['start' => $rangeStart->copy(), 'end' => $morningEnd->copy()];
+                    }
+                }
+
+                if ($rangeEnd->gt($excludeEnd)) {
+                    $afternoonStart = $rangeStart->gt($excludeEnd) ? $rangeStart->copy() : $excludeEnd;
+                    if ($afternoonStart->lt($rangeEnd)) {
+                        $availabilities[] = ['start' => $afternoonStart->copy(), 'end' => $rangeEnd->copy()];
+                    }
+                }
+            }
+
+            $currentDay->addDay();
+        }
+
+        return $availabilities;
     }
 }
