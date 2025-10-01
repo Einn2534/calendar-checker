@@ -54,12 +54,11 @@ class AvailabilityController extends Controller
                 // 「どれだけ件数があっても 2 件として扱う」ロジック
                 $specialCalendarId = 'c_62fdd6187530c4c29548c8a4e7ebf51cff6306f65b92da7da403a2009635e068@group.calendar.google.com';
                 if ($calId === $specialCalendarId) {
-                    // 自身を連結 → 件数が1なら2件に、2件以上なら2件に、0件なら0件のまま
-                    $calendarEvents = array_slice(
-                        array_merge($calendarEvents, $calendarEvents),
-                        0,
-                        2
-                    );
+                    foreach ($this->mergeCalendarEvents($calendarEvents) as $range) {
+                        $points[] = ['time' => $range['start'], 'delta' => +2];
+                        $points[] = ['time' => $range['end'],   'delta' => -2];
+                    }
+                    continue;
                 }
 
                 foreach ($calendarEvents as $item) {
@@ -219,5 +218,55 @@ class AvailabilityController extends Controller
         }
 
         return $availabilities;
+    }
+
+    /**
+     * 特定カレンダーのイベントを結合して「常に最大2件」として扱うための時間帯配列を作成
+     *
+     * @param array $calendarEvents
+     * @return array<int, array{start: Carbon, end: Carbon}>
+     */
+    private function mergeCalendarEvents(array $calendarEvents): array
+    {
+        $intervals = [];
+
+        foreach ($calendarEvents as $item) {
+            $event = $item['event'];
+            $start = new Carbon($event->getStart()->getDateTime() ?? $event->getStart()->getDate());
+            $end = new Carbon($event->getEnd()->getDateTime() ?? $event->getEnd()->getDate());
+
+            if ($end->lte($start) || in_array($start->dayOfWeekIso, [1, 2])) {
+                continue;
+            }
+
+            $intervals[] = ['start' => $start, 'end' => $end];
+        }
+
+        if (empty($intervals)) {
+            return [];
+        }
+
+        usort($intervals, fn ($a, $b) => $a['start']->lt($b['start']) ? -1 : 1);
+
+        $merged = [$intervals[0]];
+
+        foreach (array_slice($intervals, 1) as $interval) {
+            $lastIndex = count($merged) - 1;
+            $last = $merged[$lastIndex];
+
+            if ($interval['start']->lte($last['end'])) {
+                if ($interval['end']->gt($last['end'])) {
+                    $merged[$lastIndex]['end'] = $interval['end'];
+                }
+                continue;
+            }
+
+            $merged[] = $interval;
+        }
+
+        return array_map(fn ($range) => [
+            'start' => $range['start']->copy(),
+            'end' => $range['end']->copy(),
+        ], $merged);
     }
 }
