@@ -13,9 +13,13 @@ use Illuminate\Support\Facades\Route;
 |
 */
 // OAuth 認可
-Route::get('/oauth2callback', [App\Http\Controllers\Auth\GoogleController::class, 'callback']);
+Route::get('/google/auth', [App\Http\Controllers\Auth\GoogleController::class, 'redirect'])
+    ->name('google.auth');
+Route::get('/oauth2callback', [App\Http\Controllers\Auth\GoogleController::class, 'callback'])
+    ->name('google.callback');
 // 空き時間表示
-Route::get('/availability', [App\Http\Controllers\AvailabilityController::class, 'index']);
+Route::get('/availability', [App\Http\Controllers\AvailabilityController::class, 'index'])
+    ->name('availability.index');
 
 Route::get('/', function () {
     return view('welcome');

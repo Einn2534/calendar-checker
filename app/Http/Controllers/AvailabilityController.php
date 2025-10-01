@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Services\GoogleCalendarService;
 use Carbon\Carbon;
+use Google_Service_Calendar_Event;
 use Illuminate\Http\Request;
 
 class AvailabilityController extends Controller
 {
+    private const BUSY_THRESHOLD = 4;
+
     public function index(Request $request, GoogleCalendarService $gcal)
     {
         // 例：今週の月曜 9:00 ～ 金曜 18:00 を検索期間に
@@ -24,35 +27,88 @@ class AvailabilityController extends Controller
 
         $events = $gcal->fetchEvents($calendarIds, $from, $to);
 
-        // Sweep-line アルゴリズムで重複数をカウント
         $points = [];
-        foreach ($events as $ev) {
-            $start = new Carbon($ev->getStart()->getDateTime() ?? $ev->getStart()->getDate());
-            $end   = new Carbon($ev->getEnd()->getDateTime() ?? $ev->getEnd()->getDate());
+        foreach ($events as $event) {
+            [$start, $end] = $this->resolveEventRange($event, $from, $to);
+            if (!$start || !$end || $start->gte($end)) {
+                continue;
+            }
+
             $points[] = ['time' => $start, 'delta' => +1];
             $points[] = ['time' => $end,   'delta' => -1];
         }
-        // 増分・減分でソート
-        usort($points, fn($a, $b) => $a['time']->lt($b['time']) ? -1 : 1);
+
+        usort($points, function (array $a, array $b): int {
+            $cmp = $a['time']->getTimestamp() <=> $b['time']->getTimestamp();
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return $a['delta'] <=> $b['delta'];
+        });
 
         $count = 0;
         $availabilities = [];
-        $windowStart = $from;
+        $windowStart = $from->copy();
 
         foreach ($points as $pt) {
             $now = $pt['time'];
-            // “4つ以上” に到達する前の空き区間を記録
-            if ($count < 4 && $now->gt($windowStart)) {
-                $availabilities[] = ['start' => $windowStart->copy(), 'end' => $now->copy()];
+            if ($count < self::BUSY_THRESHOLD && $now->gt($windowStart)) {
+                $this->pushAvailability($availabilities, $windowStart, $now);
             }
+
             $count += $pt['delta'];
-            $windowStart = $now;
+            $windowStart = $now->copy();
         }
-        // 最後に to まで空きがあれば
-        if ($count < 4 && $windowStart->lt($to)) {
-            $availabilities[] = ['start' => $windowStart, 'end' => $to];
+
+        if ($count < self::BUSY_THRESHOLD && $windowStart->lt($to)) {
+            $this->pushAvailability($availabilities, $windowStart, $to);
         }
 
         return view('availability.index', compact('availabilities'));
+    }
+
+    /**
+     * @return array{0: Carbon|null, 1: Carbon|null}
+     */
+    private function resolveEventRange(Google_Service_Calendar_Event $event, Carbon $from, Carbon $to): array
+    {
+        $start = $event->getStart()->getDateTime() ?? $event->getStart()->getDate();
+        $end = $event->getEnd()->getDateTime() ?? $event->getEnd()->getDate();
+
+        if (!$start || !$end) {
+            return [null, null];
+        }
+
+        $startAt = Carbon::parse($start);
+        $endAt = Carbon::parse($end);
+
+        if ($endAt->lte($from) || $startAt->gte($to)) {
+            return [null, null];
+        }
+
+        $startAt = $startAt->lt($from) ? $from->copy() : $startAt;
+        $endAt = $endAt->gt($to) ? $to->copy() : $endAt;
+
+        return [$startAt, $endAt];
+    }
+
+    private function pushAvailability(array &$availabilities, Carbon $start, Carbon $end): void
+    {
+        if ($start->gte($end)) {
+            return;
+        }
+
+        if (!empty($availabilities)) {
+            $lastIndex = array_key_last($availabilities);
+            $last = $availabilities[$lastIndex];
+
+            if ($last['end']->equalTo($start)) {
+                $availabilities[$lastIndex]['end'] = $end->copy();
+                return;
+            }
+        }
+
+        $availabilities[] = ['start' => $start->copy(), 'end' => $end->copy()];
     }
 }
