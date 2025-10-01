@@ -18,7 +18,15 @@ foreach ($availabilities as $slot) {
 $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
 $wday = $weekdays[$slot['start']->dayOfWeek]; // 0〜6
 $dateLabel = $slot['start']->format('n月j日') . "（{$wday}）";
-$timeRange = $slot['start']->format('H:i') . '~' . $slot['end']->format('H:i');
+$busyCount = $slot['busy'] ?? 0;
+$availableSlots = max(0, 4 - $busyCount);
+$timeRange = sprintf(
+    '%s~%s（予定%d件／残り%d枠）',
+    $slot['start']->format('H:i'),
+    $slot['end']->format('H:i'),
+    $busyCount,
+    $availableSlots
+);
 $slotsByDate[$dateLabel][] = $timeRange;
 }
 @endphp

@@ -86,14 +86,22 @@ class AvailabilityController extends Controller
                 foreach ($points as $pt) {
                     $now = $pt['time'];
                     if ($count < 4 && $now->gt($windowStart)) {
-                        $availabilities[] = ['start' => $windowStart->copy(), 'end' => $now->copy()];
+                        $availabilities[] = [
+                            'start' => $windowStart->copy(),
+                            'end'   => $now->copy(),
+                            'busy'  => $count,
+                        ];
                     }
                     $count += $pt['delta'];
                     $windowStart = $now;
                 }
 
                 if ($count < 4 && $windowStart->lt($to)) {
-                    $availabilities[] = ['start' => $windowStart, 'end' => $to];
+                    $availabilities[] = [
+                        'start' => $windowStart->copy(),
+                        'end'   => $to->copy(),
+                        'busy'  => $count,
+                    ];
                 }
             }
             $availabilities = array_filter($availabilities, function ($slot) {
@@ -143,14 +151,20 @@ class AvailabilityController extends Controller
                     continue;
                 }
 
-                $last = &$merged[count($merged) - 1];
+                $lastIndex = count($merged) - 1;
+                $last = &$merged[$lastIndex];
 
-                // 連続または隣接（例：18:00 → 18:30）していればマージ
-                if ($last['end']->equalTo($slot['start']) || $last['end']->diffInMinutes($slot['start']) <= 5) {
+                // 連続または隣接（例：18:00 → 18:30）しており、同じ混雑度ならマージ
+                if (
+                    $last['busy'] === $slot['busy'] &&
+                    ($last['end']->equalTo($slot['start']) || $last['end']->diffInMinutes($slot['start']) <= 5)
+                ) {
                     $last['end'] = $slot['end'];
                 } else {
                     $merged[] = $slot;
                 }
+
+                unset($last); // break reference
             }
 
             $availabilities = $merged;
@@ -202,14 +216,22 @@ class AvailabilityController extends Controller
                 if ($rangeStart->lt($excludeStart)) {
                     $morningEnd = $rangeEnd->lt($excludeStart) ? $rangeEnd->copy() : $excludeStart;
                     if ($rangeStart->lt($morningEnd)) {
-                        $availabilities[] = ['start' => $rangeStart->copy(), 'end' => $morningEnd->copy()];
+                        $availabilities[] = [
+                            'start' => $rangeStart->copy(),
+                            'end' => $morningEnd->copy(),
+                            'busy' => 0,
+                        ];
                     }
                 }
 
                 if ($rangeEnd->gt($excludeEnd)) {
                     $afternoonStart = $rangeStart->gt($excludeEnd) ? $rangeStart->copy() : $excludeEnd;
                     if ($afternoonStart->lt($rangeEnd)) {
-                        $availabilities[] = ['start' => $afternoonStart->copy(), 'end' => $rangeEnd->copy()];
+                        $availabilities[] = [
+                            'start' => $afternoonStart->copy(),
+                            'end' => $rangeEnd->copy(),
+                            'busy' => 0,
+                        ];
                     }
                 }
             }
