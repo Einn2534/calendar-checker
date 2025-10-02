@@ -34,6 +34,12 @@ class AvailabilityController extends Controller
                 'c_62fdd6187530c4c29548c8a4e7ebf51cff6306f65b92da7da403a2009635e068@group.calendar.google.com',
             ];
 
+            $allowedConcurrentCaps = [5, 3, 1];
+            $maxConcurrent = (int) $request->input('max_concurrent', 5);
+            if (!in_array($maxConcurrent, $allowedConcurrentCaps, true)) {
+                $maxConcurrent = $allowedConcurrentCaps[0];
+            }
+
             $events = $gcal->fetchEvents($calendarIds, $from, $to);
 
             $calendarNames = [];
@@ -54,12 +60,11 @@ class AvailabilityController extends Controller
                 // 「どれだけ件数があっても 2 件として扱う」ロジック
                 $specialCalendarId = 'c_62fdd6187530c4c29548c8a4e7ebf51cff6306f65b92da7da403a2009635e068@group.calendar.google.com';
                 if ($calId === $specialCalendarId) {
-                    // 自身を連結 → 件数が1なら2件に、2件以上なら2件に、0件なら0件のまま
-                    $calendarEvents = array_slice(
-                        array_merge($calendarEvents, $calendarEvents),
-                        0,
-                        2
-                    );
+                    foreach ($this->mergeCalendarEvents($calendarEvents) as $range) {
+                        $points[] = ['time' => $range['start'], 'delta' => +2];
+                        $points[] = ['time' => $range['end'],   'delta' => -2];
+                    }
+                    continue;
                 }
 
                 foreach ($calendarEvents as $item) {
@@ -76,26 +81,34 @@ class AvailabilityController extends Controller
             }
 
             if (empty($points)) {
-                $availabilities[] = ['start' => $from->copy(), 'end' => $to->copy()];
-            }
+                $availabilities = $this->buildFullAvailability($from, $to);
+            } else {
+                usort($points, fn($a, $b) => $a['time']->lt($b['time']) ? -1 : 1);
 
-            usort($points, fn($a, $b) => $a['time']->lt($b['time']) ? -1 : 1);
+                $count = 0;
+                $availabilities = [];
+                $windowStart = $from;
 
-            $count = 0;
-            $availabilities = [];
-            $windowStart = $from;
-
-            foreach ($points as $pt) {
-                $now = $pt['time'];
-                if ($count < 4 && $now->gt($windowStart)) {
-                    $availabilities[] = ['start' => $windowStart->copy(), 'end' => $now->copy()];
+                foreach ($points as $pt) {
+                    $now = $pt['time'];
+                    if ($count < $maxConcurrent && $now->gt($windowStart)) {
+                        $availabilities[] = [
+                            'start' => $windowStart->copy(),
+                            'end'   => $now->copy(),
+                            'busy'  => $count,
+                        ];
+                    }
+                    $count += $pt['delta'];
+                    $windowStart = $now;
                 }
-                $count += $pt['delta'];
-                $windowStart = $now;
-            }
 
-            if ($count < 4 && $windowStart->lt($to)) {
-                $availabilities[] = ['start' => $windowStart, 'end' => $to];
+                if ($count < $maxConcurrent && $windowStart->lt($to)) {
+                    $availabilities[] = [
+                        'start' => $windowStart->copy(),
+                        'end'   => $to->copy(),
+                        'busy'  => $count,
+                    ];
+                }
             }
             $availabilities = array_filter($availabilities, function ($slot) {
                 $start = $slot['start'];
@@ -144,23 +157,149 @@ class AvailabilityController extends Controller
                     continue;
                 }
 
-                $last = &$merged[count($merged) - 1];
+                $lastIndex = count($merged) - 1;
+                $last = &$merged[$lastIndex];
 
-                // 連続または隣接（例：18:00 → 18:30）していればマージ
-                if ($last['end']->equalTo($slot['start']) || $last['end']->diffInMinutes($slot['start']) <= 5) {
+                // 連続または隣接（例：18:00 → 18:30）しており、同じ混雑度ならマージ
+                if (
+                    $last['busy'] === $slot['busy'] &&
+                    ($last['end']->equalTo($slot['start']) || $last['end']->diffInMinutes($slot['start']) <= 5)
+                ) {
                     $last['end'] = $slot['end'];
                 } else {
                     $merged[] = $slot;
                 }
+
+                unset($last); // break reference
             }
 
             $availabilities = $merged;
 
             $calendarNames = array_unique($calendarNames);
 
-            return view('availability.index', compact('availabilities', 'calendarNames'));
+            return view('availability.index', [
+                'availabilities' => $availabilities,
+                'calendarNames' => $calendarNames,
+                'maxConcurrent' => $maxConcurrent,
+                'allowedConcurrentCaps' => $allowedConcurrentCaps,
+            ]);
         } catch (\Throwable $e) {
             return view('availability.error', ['message' => $e->getMessage()]);
         }
+    }
+
+    private function buildFullAvailability(Carbon $from, Carbon $to): array
+    {
+        $availabilities = [];
+        $currentDay = $from->copy()->startOfDay();
+
+        while ($currentDay->lte($to)) {
+            $dayOfWeek = $currentDay->dayOfWeekIso;
+
+            if (in_array($dayOfWeek, [1, 2])) {
+                $currentDay->addDay();
+                continue;
+            }
+
+            if (in_array($dayOfWeek, [6, 7])) {
+                $dayStart = $currentDay->copy()->setTime(10, 0);
+                $dayEnd = $currentDay->copy()->setTime(18, 30);
+            } else {
+                $dayStart = $currentDay->copy()->setTime(10, 0);
+                $dayEnd = $currentDay->copy()->setTime(20, 30);
+            }
+
+            $rangeStart = $dayStart;
+            $rangeEnd = $dayEnd;
+
+            if ($from->isSameDay($currentDay) && $from->gt($rangeStart)) {
+                $rangeStart = $from->copy();
+            }
+
+            if ($to->isSameDay($currentDay) && $to->lt($rangeEnd)) {
+                $rangeEnd = $to->copy();
+            }
+
+            if ($rangeStart->lt($rangeEnd)) {
+                $excludeStart = $currentDay->copy()->setTime(12, 0);
+                $excludeEnd = $currentDay->copy()->setTime(14, 0);
+
+                if ($rangeStart->lt($excludeStart)) {
+                    $morningEnd = $rangeEnd->lt($excludeStart) ? $rangeEnd->copy() : $excludeStart;
+                    if ($rangeStart->lt($morningEnd)) {
+                        $availabilities[] = [
+                            'start' => $rangeStart->copy(),
+                            'end' => $morningEnd->copy(),
+                            'busy' => 0,
+                        ];
+                    }
+                }
+
+                if ($rangeEnd->gt($excludeEnd)) {
+                    $afternoonStart = $rangeStart->gt($excludeEnd) ? $rangeStart->copy() : $excludeEnd;
+                    if ($afternoonStart->lt($rangeEnd)) {
+                        $availabilities[] = [
+                            'start' => $afternoonStart->copy(),
+                            'end' => $rangeEnd->copy(),
+                            'busy' => 0,
+                        ];
+                    }
+                }
+            }
+
+            $currentDay->addDay();
+        }
+
+        return $availabilities;
+    }
+
+    /**
+     * 特定カレンダーのイベントを結合して「常に最大2件」として扱うための時間帯配列を作成
+     *
+     * @param array $calendarEvents
+     * @return array<int, array{start: Carbon, end: Carbon}>
+     */
+    private function mergeCalendarEvents(array $calendarEvents): array
+    {
+        $intervals = [];
+
+        foreach ($calendarEvents as $item) {
+            $event = $item['event'];
+            $start = new Carbon($event->getStart()->getDateTime() ?? $event->getStart()->getDate());
+            $end = new Carbon($event->getEnd()->getDateTime() ?? $event->getEnd()->getDate());
+
+            if ($end->lte($start) || in_array($start->dayOfWeekIso, [1, 2])) {
+                continue;
+            }
+
+            $intervals[] = ['start' => $start, 'end' => $end];
+        }
+
+        if (empty($intervals)) {
+            return [];
+        }
+
+        usort($intervals, fn ($a, $b) => $a['start']->lt($b['start']) ? -1 : 1);
+
+        $merged = [$intervals[0]];
+
+        foreach (array_slice($intervals, 1) as $interval) {
+            $lastIndex = count($merged) - 1;
+            $last = $merged[$lastIndex];
+
+            if ($interval['start']->lte($last['end'])) {
+                if ($interval['end']->gt($last['end'])) {
+                    $merged[$lastIndex]['end'] = $interval['end'];
+                }
+                continue;
+            }
+
+            $merged[] = $interval;
+        }
+
+        return array_map(fn ($range) => [
+            'start' => $range['start']->copy(),
+            'end' => $range['end']->copy(),
+        ], $merged);
     }
 }
